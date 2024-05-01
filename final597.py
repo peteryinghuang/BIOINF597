@@ -1,5 +1,7 @@
 import pandas as pd
-
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 # 定义文件的URL
 url = "https://github.com/peteryinghuang/BIOINF597/raw/main/qm9.csv.gz"
 
@@ -69,6 +71,7 @@ tokenizer = SmilesTokenizer()
 # 建立词汇表
 train_smiles = train_data['smiles_padded'].tolist()
 vocab = build_vocab(train_smiles, tokenizer)
+vocab_size = len(vocab)
 
 # 打印词汇表信息
 print(f"Vocabulary size: {len(vocab)}")
@@ -107,7 +110,7 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
         # 编码器
         self.encoder = nn.Sequential(
-            nn.Linear(vocab_size, hidden_size),
+            nn.Linear(vocab_size + 1, hidden_size),  # 加1是因为未知符号
             nn.ReLU(),
             nn.Linear(hidden_size, latent_dim * 2)  # 输出均值和方差
         )
@@ -116,7 +119,7 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, vocab_size),
+            nn.Linear(hidden_size, vocab_size + 1),  # 加1是因为未知符号
             nn.Sigmoid()  # 输出概率
         )
         
@@ -130,6 +133,11 @@ class VAE(nn.Module):
         mu, log_var = torch.chunk(h, 2, dim=-1)
         z = self.reparameterize(mu, log_var)
         return self.decoder(z), mu, log_var
+
+# Define the size of the hidden layer
+hidden_size = 256
+# Define the dimensionality of the latent space
+latent_dim = 64
 
 # 实例化模型并将其发送到设备
 model = VAE(vocab_size, hidden_size, latent_dim).to(device)
@@ -145,6 +153,7 @@ def loss_function(recon_x, x, mu, log_var):
 def train(epoch, model, device, train_loader, optimizer):
     model.train()
     train_loss = 0
+    log_interval = 10 # 每10个批次打印一次训练状态
     for batch_idx, data in enumerate(train_loader):
         # 将数据发送到设备
         data = data.to(device)
@@ -163,5 +172,11 @@ def train(epoch, model, device, train_loader, optimizer):
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
 
+# Define the number of epochs
+epoch = 20
+
 # 调用训练函数并传递设备
-train(epoch, model, device, train_loader, optimizer)
+#train(epoch, model, device, train_loader, optimizer)
+# 调用训练函数并传递设备，循环遍历每个epoch
+for epoch in range(1, epoch + 1):
+    train(epoch, model, device, train_loader, optimizer)
