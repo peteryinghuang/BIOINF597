@@ -31,8 +31,8 @@ train_data = train_data.iloc[:train_size_adjusted]
 validate_data = validate_data.iloc[:validate_size_adjusted]
 
 # 显示划分后的数据集大小
-print(f"训练集大小: {train_data.shape[0]}")
-print(f"验证集大小: {validate_data.shape[0]}")
+print(f"Train dataset size: {train_data.shape[0]}")
+print(f"Validation dataset size: {validate_data.shape[0]}")
 
 # 检查一下填充结果
 print(train_data[['smiles', 'smiles_padded']].head())
@@ -73,6 +73,7 @@ tokenizer = SmilesTokenizer()
 
 # 建立词汇表
 train_smiles = train_data['smiles_padded'].tolist()
+validate_smiles = validate_data['smiles_padded'].tolist()
 vocab = build_vocab(train_smiles, tokenizer)
 vocab_size = len(vocab)
 
@@ -89,21 +90,26 @@ for smi, tokens in zip(sample_smiles, tokenized_samples):
     
 # 转换SMILES为独热编码并打包数据
 train_ohe = [smiles_to_ohe(smi, tokenizer, vocab) for smi in train_smiles]
+validate_ohe = [smiles_to_ohe(smi, tokenizer, vocab) for smi in validate_smiles]
+
 train_ohe_padded = pad_sequence(train_ohe, batch_first=True, padding_value=0)
+validate_ohe_padded = pad_sequence(validate_ohe, batch_first=True, padding_value=0)
+
 
 # 创建数据加载器
 train_loader = DataLoader(train_ohe_padded, batch_size=64, shuffle=True)
+validate_loader = DataLoader(validate_ohe_padded, batch_size=64, shuffle=False)
 
 # 输出一些独热编码的样本
-sample_ohe = train_ohe[:5]
-print("\nSample One-Hot Encoded data:")
-for smi, ohe in zip(sample_smiles, sample_ohe):
-    print(f"{smi} -> Shape: {ohe.shape}")
-    print(ohe)
+#sample_ohe = train_ohe[:5]
+#print("\nSample One-Hot Encoded data:")
+#for smi, ohe in zip(sample_smiles, sample_ohe):
+#    print(f"{smi} -> Shape: {ohe.shape}")
+#    print(ohe)
 
 # 检查填充后的独热编码
-print("\nPadded One-Hot Encoded data sample:")
-print(train_ohe_padded[0])
+#print("\nPadded One-Hot Encoded data sample:")
+#print(train_ohe_padded[0])
 
 # 检测是否有GPU可用，并设置PyTorch设备
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -169,15 +175,26 @@ def train(epoch, model, device, train_loader, optimizer):
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
     return average_loss
 
+def validate(model, device, validate_loader):
+    model.eval()  # 切换到评估模式
+    validate_loss = 0
+    with torch.no_grad():  # 不进行梯度计算
+        for data in validate_loader:
+            data = data.to(device)
+            recon_batch, mu, log_var = model(data)
+            loss = loss_function(recon_batch, data, mu, log_var)
+            validate_loss += loss.item()
+    average_validate_loss = validate_loss / len(validate_loader.dataset)
+    return average_validate_loss
+
 losses = []
 # Define the number of epochs
-num_epoch = 20
+num_epoch = 10
 
 # 调用训练函数并传递设备
 #train(epoch, model, device, train_loader, optimizer)
 # 调用训练函数并传递设备，循环遍历每个epoch
 start_time = time.time()
-import matplotlib.pyplot as plt
 
 def train_and_validate(num_epochs, model, device, train_loader, validate_loader, optimizer):
     train_losses = []
@@ -207,6 +224,7 @@ def train_and_validate(num_epochs, model, device, train_loader, validate_loader,
 # 调用训练与验证函数
 train_losses, validate_losses = train_and_validate(num_epoch, model, device, train_loader, validate_loader, optimizer)
 
+end_time = time.time()
 total_time = end_time - start_time
 print(f'Total training time: {total_time:.2f} seconds')
 # 绘制训练与验证损失图
