@@ -1,7 +1,10 @@
+import time
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
 # 定义文件的URL
 url = "https://github.com/peteryinghuang/BIOINF597/raw/main/qm9.csv.gz"
 
@@ -137,7 +140,7 @@ class VAE(nn.Module):
 # Define the size of the hidden layer
 hidden_size = 256
 # Define the dimensionality of the latent space
-latent_dim = 64
+latent_dim = 2
 
 # 实例化模型并将其发送到设备
 model = VAE(vocab_size, hidden_size, latent_dim).to(device)
@@ -153,30 +156,72 @@ def loss_function(recon_x, x, mu, log_var):
 def train(epoch, model, device, train_loader, optimizer):
     model.train()
     train_loss = 0
-    log_interval = 10 # 每10个批次打印一次训练状态
     for batch_idx, data in enumerate(train_loader):
-        # 将数据发送到设备
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, mu, log_var = model(data)
         loss = loss_function(recon_batch, data, mu, log_var)
         loss.backward()
-        train_loss += loss.item()
         optimizer.step()
-        
-        if batch_idx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item() / len(data)))
+        train_loss += loss.item()
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(train_loader.dataset)))
+    average_loss = train_loss / len(train_loader.dataset)
+    print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
+    return average_loss
 
+losses = []
 # Define the number of epochs
-epoch = 20
+num_epoch = 20
 
 # 调用训练函数并传递设备
 #train(epoch, model, device, train_loader, optimizer)
 # 调用训练函数并传递设备，循环遍历每个epoch
-for epoch in range(1, epoch + 1):
-    train(epoch, model, device, train_loader, optimizer)
+start_time = time.time()
+import matplotlib.pyplot as plt
+
+def train_and_validate(num_epochs, model, device, train_loader, validate_loader, optimizer):
+    train_losses = []
+    validate_losses = []
+    
+    for epoch in range(1, num_epochs + 1):
+        model.train()
+        train_loss = 0
+        for batch_idx, data in enumerate(train_loader):
+            data = data.to(device)
+            optimizer.zero_grad()
+            recon_batch, mu, log_var = model(data)
+            loss = loss_function(recon_batch, data, mu, log_var)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        average_train_loss = train_loss / len(train_loader.dataset)
+        train_losses.append(average_train_loss)
+
+        validate_loss = validate(model, device, validate_loader)
+        validate_losses.append(validate_loss)
+        
+        print(f'Epoch: {epoch}, Training Loss: {average_train_loss:.4f}, Validation Loss: {validate_loss:.4f}')
+    
+    return train_losses, validate_losses
+
+# 调用训练与验证函数
+train_losses, validate_losses = train_and_validate(num_epoch, model, device, train_loader, validate_loader, optimizer)
+
+total_time = end_time - start_time
+print(f'Total training time: {total_time:.2f} seconds')
+# 绘制训练与验证损失图
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Training Loss', marker='o', linestyle='-')
+plt.plot(validate_losses, label='Validation Loss', marker='o', linestyle='-')
+plt.title('Training & Validation Loss Over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+#for epoch in range(1, num_epoch + 1):
+#    avg_loss = train(epoch, model, device, train_loader, optimizer)
+#    losses.append(avg_loss)
+#end_time = time.time()
+#print(f'Total training time: {total_time:.2f} seconds')
