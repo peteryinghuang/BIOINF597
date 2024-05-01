@@ -243,3 +243,88 @@ plt.show()
 #    losses.append(avg_loss)
 #end_time = time.time()
 #print(f'Total training time: {total_time:.2f} seconds')
+
+def generate_molecule(model, device, vocab, num_samples=1):
+    print("Starting molecule generation process...")
+    model.eval()
+    with torch.no_grad():
+        print(f"Sampling {num_samples} points from the latent space...")
+        z = torch.randn(num_samples, latent_dim).to(device)  # 从标准正态分布中采样
+        print("Generating SMILES from decoder output...")
+        generated_smiles_ohe = model.decoder(z)
+        print(f"Shape of decoder output: {generated_smiles_ohe.shape}")  # Add this line to check the shape
+        # Handling the shape of the decoder output
+        if generated_smiles_ohe.dim() < 3:
+            # Assuming that it is missing the sequence_length dimension
+            generated_smiles_ohe = generated_smiles_ohe.view(num_samples, -1, vocab_size + 1)
+            print(f"Reshaped decoder output: {generated_smiles_ohe.shape}")  # Verify new shape
+        generated_smiles_indices = torch.argmax(generated_smiles_ohe, dim=2)
+        inv_vocab = {v: k for k, v in vocab.items()}  # 反转vocab字典
+        smiles = []
+        for idx_tensor in generated_smiles_indices:
+            print("Decoding SMILES...")
+            smi = ''.join([inv_vocab.get(int(idx), ' ') for idx in idx_tensor if idx != len(vocab)])
+            smiles.append(smi)
+            print(f"Generated SMILES: {smi}")
+    print("Molecule generation completed.")
+    return smiles
+
+from rdkit import Chem
+from rdkit.Chem import QED
+
+def evaluate_molecules(smiles_list, training_data):
+    valid_smiles = []
+    validity = 0
+    novelty = 0
+    qed_scores = []
+    
+    for smi in smiles_list:
+        mol = Chem.MolFromSmiles(smi)
+        if mol:  # 检查分子是否有效
+            validity += 1
+            valid_smiles.append(smi)
+            qed_scores.append(QED.qed(mol))
+            if smi not in training_data:
+                novelty += 1
+
+    validity_score = validity / len(smiles_list)
+    novelty_score = novelty / len(valid_smiles) if valid_smiles else 0
+    average_qed = sum(qed_scores) / len(qed_scores) if qed_scores else 0
+
+    return validity_score, novelty_score, average_qed, valid_smiles
+
+# 生成新分子
+generated_smiles = generate_molecule(model, device, vocab, num_samples=10)
+
+# 评估新分子
+validity_score, novelty_score, average_qed, valid_smiles = evaluate_molecules(generated_smiles, train_data['smiles'].tolist())
+
+print(f"Validity: {validity_score}")
+print(f"Novelty: {novelty_score}")
+print(f"Average QED: {average_qed}")
+print("Valid SMILES:", valid_smiles)
+
+def generate_valid_molecules(model, device, vocab, inv_vocab, num_candidates=100, num_samples=1):
+    generated_smiles = []
+    valid_smiles_list = []
+    while len(valid_smiles_list) < num_samples:
+        new_smiles = generate_molecule(model, device, vocab, num_candidates)
+        for smi in new_smiles:
+            mol = Chem.MolFromSmiles(smi)
+            if mol and smi not in generated_smiles:  # 检查分子是否有效且不重复
+                valid_smiles_list.append(smi)
+                if len(valid_smiles_list) == num_samples:
+                    break
+        generated_smiles.extend(new_smiles)
+    return valid_smiles_list
+
+# 定义反转词汇表，用于解码索引到SMILES字符
+inv_vocab = {v: k for k, v in vocab.items()}  
+
+# 生成符合规范的分子
+num_molecules_to_generate = 10  # 想要生成的有效分子数量
+valid_smiles = generate_valid_molecules(model, device, vocab, inv_vocab, num_candidates=100, num_samples=num_molecules_to_generate)
+
+# 打印生成的有效SMILES字符串
+for i, smi in enumerate(valid_smiles, 1):
+    print(f"Molecule {i}: {smi}")
